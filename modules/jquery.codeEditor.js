@@ -1,5 +1,5 @@
-/* Ace syntax-highlighting code editor extension for wikiEditor */
-/* global ace */
+/* Monaco syntax-highlighting code editor extension for wikiEditor */
+/* global monaco, initializeMonacoEditor */
 /* eslint-disable no-jquery/no-global-selector */
 ( function () {
 	$.wikiEditor.modules.codeEditor = {
@@ -11,7 +11,7 @@
 		 * Configuration
 		 */
 		cfg: {
-			//
+			// Removed Ace-specific configurations
 		},
 		/**
 		 * API accessible functions
@@ -35,8 +35,7 @@
 
 	$.wikiEditor.extensions.codeEditor = function ( context ) {
 		let hasErrorsOnSave = false,
-			selectedLine = 0,
-			textSelectionFn = null;
+			selectedLine = 0;
 		const returnFalse = function () {
 				return false;
 			},
@@ -80,18 +79,114 @@
 				return true;
 			},
 			codeEditorSave: function () {
-				if ( context.codeEditor.getSession().getAnnotations().some( ( ann ) => ann.type === 'error' ) ) {
-					hasErrorsOnSave = true;
+				// Check for errors in the Monaco editor model
+				hasErrorsOnSave = false; // Reset
+				if ( context.codeEditor && context.codeEditor.getModel && monaco && monaco.editor && monaco.MarkerSeverity ) {
+					var model = context.codeEditor.getModel();
+					if (model) {
+						// Get markers for the specific model URI
+						var markers = monaco.editor.getModelMarkers({ resource: model.uri });
+						if ( markers.some( function(marker) { return marker.severity === monaco.MarkerSeverity.Error; } ) ) {
+							hasErrorsOnSave = true;
+						}
+					}
 				}
 			},
 			codeEditorSync: function () {
-				context.$textarea.val( context.$textarea.textSelection( 'getContents' ) );
-
+				if ( context.codeEditor && typeof context.codeEditor.getValue === 'function' ) {
+					context.$textarea.val( context.codeEditor.getValue() );
+				}
 			}
 		} );
 
 		// Make sure to cast '0' to false
 		context.codeEditorActive = !!Number( mw.user.options.get( 'usecodeeditor' ) );
+
+		let textSelectionFn = { // Define textSelectionFn for Monaco
+			getContents: function () {
+				return context.codeEditor ? context.codeEditor.getValue() : context.$textarea.val();
+			},
+			setContents: function ( content ) {
+				if ( context.codeEditor ) {
+					context.codeEditor.setValue( content );
+				} else {
+					context.$textarea.val( content );
+				}
+			},
+			getSelection: function () {
+				if ( context.codeEditor ) {
+					var selection = context.codeEditor.getSelection();
+					var model = context.codeEditor.getModel();
+					if ( selection && model ) {
+						return model.getValueInRange( selection );
+					}
+				}
+				return context.$textarea.textSelection( 'getSelection' );
+			},
+			setSelection: function ( options ) {
+				if ( context.codeEditor && options.start !== undefined && options.end !== undefined && monaco && monaco.Range) {
+					var model = context.codeEditor.getModel();
+					if (model) {
+						var startPosition = model.getPositionAt( options.start );
+						var endPosition = model.getPositionAt( options.end );
+						var range = new monaco.Range(
+							startPosition.lineNumber,
+							startPosition.column,
+							endPosition.lineNumber,
+							endPosition.column
+						);
+						context.codeEditor.setSelection(range);
+						context.codeEditor.revealRange(range, monaco.editor.ScrollType.Smooth);
+					}
+				} else {
+					context.$textarea.textSelection( 'setSelection', options );
+				}
+			},
+			replaceSelection: function ( newText ) {
+				if ( context.codeEditor ) {
+					var selection = context.codeEditor.getSelection();
+					if (selection) {
+						context.codeEditor.executeEdits('jquery.codeEditor.replaceSelection', [{
+							range: selection,
+							text: newText,
+							forceMoveMarkers: true
+						}]);
+					} else {
+						var position = context.codeEditor.getPosition();
+						if (position) {
+							var range = new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column);
+							context.codeEditor.executeEdits('jquery.codeEditor.insertText', [{
+								range: range,
+								text: newText,
+								forceMoveMarkers: true
+							}]);
+						}
+					}
+				} else {
+					context.$textarea.textSelection( 'replaceSelection', newText );
+				}
+			},
+			getCaretPosition: function( options ) {
+				if ( context.codeEditor ) {
+					var position = context.codeEditor.getPosition();
+					var model = context.codeEditor.getModel();
+					if (position && model) {
+						return model.getOffsetAt(position);
+					}
+				}
+				return context.$textarea.textSelection('getCaretPosition', options);
+			},
+			scrollToCaretPosition: function () {
+				if (context.codeEditor) {
+					var position = context.codeEditor.getPosition();
+					if (position) {
+						context.codeEditor.revealPosition(position, monaco.editor.ScrollType.Smooth);
+					}
+				} else {
+					context.$textarea.textSelection('scrollToCaretPosition');
+				}
+			}
+		};
 
 		/**
 		 * Internally used functions
@@ -112,10 +207,10 @@
 					value
 				);
 			},
-			aceGotoLineColumn: function () {
+			monacoGotoLineColumn: function () {
 				OO.ui.prompt( mw.msg( 'codeeditor-gotoline-prompt' ), {
 					textInput: { placeholder: mw.msg( 'codeeditor-gotoline-placeholder' ) }
-				} ).then( ( result ) => {
+				} ).then( function ( result ) {
 					if ( !result ) {
 						return;
 					}
@@ -129,19 +224,23 @@
 						if ( isNaN( line ) ) {
 							return;
 						} else {
-							// Lines are zero-indexed
-							line--;
+							line = Math.max(1, line);
 						}
 					}
 					if ( matches.length > 1 ) {
 						column = +matches[ 1 ];
 						if ( isNaN( column ) ) {
-							column = 0;
+							column = 1;
+						} else {
+							column = Math.max(1, column);
 						}
 					}
-					context.codeEditor.navigateTo( line, column );
-					// Scroll up a bit to give some context
-					context.codeEditor.scrollToRow( line - 4 );
+
+					if ( context.codeEditor ) {
+						context.codeEditor.revealPositionInCenter({ lineNumber: line, column: column }, monaco.editor.ScrollType.Smooth);
+						context.codeEditor.setPosition({ lineNumber: line, column: column });
+						context.codeEditor.focus();
+					}
 				} );
 			},
 			setupCodeEditorToolbar: function () {
@@ -152,7 +251,6 @@
 					ctx.fn.updateCodeEditorToolbarButton();
 
 					if ( ctx.codeEditorActive ) {
-						// set it back up!
 						ctx.fn.setupCodeEditor();
 					} else {
 						ctx.fn.disableCodeEditor();
@@ -164,16 +262,20 @@
 					ctx.fn.changeCookieValue( 'showInvisibleChars', ctx.showInvisibleChars ? 1 : 0 );
 					ctx.fn.updateInvisibleCharsButton();
 
-					ctx.codeEditor.setShowInvisibles( ctx.showInvisibleChars );
+					if ( ctx.codeEditor ) {
+						ctx.codeEditor.updateOptions({
+							renderWhitespace: ctx.showInvisibleChars ? 'all' : 'none'
+						});
+					}
 				};
 				const toggleSearchReplace = function ( ctx ) {
-					const searchBox = ctx.codeEditor.searchBox;
-					if ( searchBox && $( searchBox.element ).css( 'display' ) !== 'none' ) {
-						searchBox.hide();
-					} else {
-						ctx.codeEditor.execCommand(
-							ctx.codeEditor.getReadOnly() ? 'find' : 'replace'
-						);
+					if ( ctx.codeEditor ) {
+						var findAction = ctx.codeEditor.getAction('editor.action.startFindReplaceAction');
+						if (findAction) {
+							findAction.run();
+						} else {
+							ctx.codeEditor.getAction('actions.find').run();
+						}
 					}
 				};
 				const toggleLineWrapping = function ( ctx ) {
@@ -182,16 +284,24 @@
 					ctx.fn.changeCookieValue( 'lineWrappingActive', ctx.lineWrappingActive ? 1 : 0 );
 					ctx.fn.updateLineWrappingButton();
 
-					ctx.codeEditor.getSession().setUseWrapMode( ctx.lineWrappingActive );
+					if ( ctx.codeEditor ) {
+						ctx.codeEditor.updateOptions({
+							wordWrap: ctx.lineWrappingActive ? 'on' : 'off'
+						});
+					}
 				};
 				const indent = function ( ctx ) {
-					ctx.codeEditor.execCommand( 'indent' );
+					if ( ctx.codeEditor ) {
+						ctx.codeEditor.trigger('toolbar', 'editor.action.indentLines');
+					}
 				};
 				const outdent = function ( ctx ) {
-					ctx.codeEditor.execCommand( 'outdent' );
+					if ( ctx.codeEditor ) {
+						ctx.codeEditor.trigger('toolbar', 'editor.action.outdentLines');
+					}
 				};
 				const gotoLine = function ( ctx ) {
-					ctx.codeEditor.execCommand( 'gotolinecolumn' );
+					ctx.fn.monacoGotoLineColumn();
 				};
 
 				context.api.addToToolbar( context, {
@@ -205,7 +315,7 @@
 									oouiIcon: 'markup',
 									action: {
 										type: 'callback',
-										execute: toggleEditor
+										execute: function() { toggleEditor(context); }
 									}
 								}
 							}
@@ -218,7 +328,7 @@
 									oouiIcon: 'indent',
 									action: {
 										type: 'callback',
-										execute: indent
+										execute: function() { indent(context); }
 									}
 								},
 								outdent: {
@@ -227,7 +337,7 @@
 									oouiIcon: 'outdent',
 									action: {
 										type: 'callback',
-										execute: outdent
+										execute: function() { outdent(context); }
 									}
 								}
 
@@ -241,7 +351,7 @@
 									oouiIcon: 'pilcrow',
 									action: {
 										type: 'callback',
-										execute: toggleInvisibleChars
+										execute: function() { toggleInvisibleChars(context); }
 									}
 								},
 								lineWrapping: {
@@ -250,7 +360,7 @@
 									oouiIcon: 'wrapping',
 									action: {
 										type: 'callback',
-										execute: toggleLineWrapping
+										execute: function() { toggleLineWrapping(context); }
 									}
 								},
 								gotoLine: {
@@ -259,7 +369,7 @@
 									oouiIcon: 'gotoLine',
 									action: {
 										type: 'callback',
-										execute: gotoLine
+										execute: function() { gotoLine(context); }
 									}
 								},
 								toggleSearchReplace: {
@@ -268,7 +378,7 @@
 									oouiIcon: 'articleSearch',
 									action: {
 										type: 'callback',
-										execute: toggleSearchReplace
+										execute: function() { toggleSearchReplace(context); }
 									}
 								}
 							}
@@ -320,48 +430,48 @@
 					} );
 			},
 			/**
-			 * Sets up the iframe in place of the textarea to allow more advanced operations
+			 * Sets up Monaco editor in place of the textarea
 			 */
 			setupCodeEditor: function () {
 				const $box = context.$textarea;
 				let lang = mw.config.get( 'wgCodeEditorCurrentLanguage' );
-				let basePath = mw.config.get( 'wgExtensionAssetsPath', '' );
-				if ( basePath.slice( 0, 2 ) === '//' ) {
-					// ACE uses web workers, which have importScripts, which don't like relative links.
-					// This is a problem only when the assets are on another server, so this rewrite should suffice
-					// Protocol relative
-					basePath = window.location.protocol + basePath;
-				}
-				ace.config.set( 'basePath', basePath + '/CodeEditor/modules/lib/ace' );
 
-				if ( lang ) {
-					// Ace doesn't like replacing a textarea directly.
-					// We'll stub this out to sit on top of it...
-					// line-height is needed to compensate for oddity in WikiEditor extension, which zeroes the line-height on a parent container
-					// eslint-disable-next-line no-jquery/no-parse-html-literal
-					const container = context.$codeEditorContainer = $( '<div style="position: relative"><div class="editor" style="line-height: 1.5em; top: 0; left: 0; right: 0; bottom: 0; position: absolute;"></div></div>' ).insertAfter( $box );
-					const editdiv = container.find( '.editor' );
+				document.body.classList.add( 'codeeditor-loading' );
 
-					$box.css( 'display', 'none' );
-					container.height( $box.height() );
+				if ( lang && typeof initializeMonacoEditor === 'function' ) {
+					var textAreaId = $box.attr('id');
+					if (!textAreaId) {
+						textAreaId = 'monaco-editor-textarea-' + mw.now();
+						$box.attr('id', textAreaId);
+					}
 
-					// Non-lazy loaded dependencies: Enable code completion
-					ace.require( 'ace/ext/language_tools' );
+					const languageMap = {
+						'javascript': 'javascript',
+						'json': 'json',
+						'css': 'css',
+						'less': 'less',
+						'lua': 'lua',
+						'html': 'html',
+						'xml': 'xml',
+						'php': 'php',
+						'python': 'python',
+						'sql': 'sql',
+						'yaml': 'yaml',
+						'markdown': 'markdown',
+						'java': 'java',
+						'csharp': 'csharp',
+						'cpp': 'cpp',
+						'objective-c': 'objective-c',
+						'swift': 'swift',
+						'ruby': 'ruby',
+						'go': 'go',
+						'perl': 'perl',
+						'shell': 'shell',
+						'plaintext': 'plaintext',
+						'wikitext': 'plaintext'
+					};
 
-					// Load the editor now
-					context.codeEditor = ace.edit( editdiv[ 0 ] );
-					context.codeEditor.getSession().setValue( $box.val() );
-					$box.textSelection( 'register', textSelectionFn );
-
-					// Disable some annoying keybindings
-					context.codeEditor.commands.bindKeys( {
-						'Ctrl-T': null,
-						'Ctrl-L': null,
-						'Command-L': null
-					} );
-
-					context.codeEditor.setReadOnly( $box.prop( 'readonly' ) );
-					context.codeEditor.setShowInvisibles( context.showInvisibleChars );
+					const monacoLang = languageMap[lang.toLowerCase()] || 'plaintext';
 
 					const htmlClasses = document.documentElement.classList;
 					const inDarkMode = htmlClasses.contains( 'skin-theme-clientpref-night' ) || (
@@ -369,82 +479,88 @@
 						window.matchMedia && window.matchMedia( '(prefers-color-scheme: dark)' ).matches
 					);
 
-					// The options to enable
-					context.codeEditor.setOptions( {
-						enableBasicAutocompletion: true,
-						enableLiveAutocompletion: true,
-						enableSnippets: true,
-						theme: inDarkMode ? 'ace/theme/monokai' : 'ace/theme/textmate'
-					} );
+					initializeMonacoEditor( textAreaId, monacoLang, {
+						theme: inDarkMode ? 'vs-dark' : 'vs',
+						renderWhitespace: context.showInvisibleChars ? 'all' : 'none',
+						wordWrap: context.lineWrappingActive ? 'on' : 'off',
+						readOnly: $box.prop( 'readonly' ),
+						automaticLayout: true
+					});
 
-					context.codeEditor.commands.addCommand( {
-						name: 'gotolinecolumn',
-						bindKey: { mac: 'Command-Shift-L', windows: 'Ctrl-Alt-L' },
-						exec: context.fn.aceGotoLineColumn,
-						readOnly: true
-					} );
+					var checkEditorInterval = setInterval(function() {
+						var editor = $box.data('monacoEditor');
+						if (editor) {
+							clearInterval(checkEditorInterval);
+							context.codeEditor = editor;
+							context.$codeEditorContainer = $(editor.getDomNode()).parent();
 
-					$box.closest( 'form' )
-						.on( 'submit', context.evt.codeEditorSubmit )
-						.find( '#wpSave' ).on( 'click', context.evt.codeEditorSave );
+							context.$textarea.textSelection( 'register', textSelectionFn );
 
-					const session = context.codeEditor.getSession();
+							$box.closest( 'form' )
+								.off( '.codeEditor' )
+								.on( 'submit.codeEditor', context.evt.codeEditorSubmit )
+								.find( '#wpSave' ).off( '.codeEditor' ).on( 'click.codeEditor', context.evt.codeEditorSave );
 
-					// Use proper tabs
-					session.setUseSoftTabs( false );
-					session.setUseWrapMode( context.lineWrappingActive );
+							if (monaco && monaco.KeyMod && monaco.KeyCode) {
+								editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyL, function() {
+									context.fn.monacoGotoLineColumn();
+								});
+							}
 
-					// Configure any workers
-					session.on( 'changeMode', ( e, session2 ) => {
-						// eslint-disable-next-line no-jquery/variable-pattern
-						const mode = session2.getMode().$id;
-						if ( mode === 'ace/mode/javascript' ) {
-							session2.$worker.send( 'changeOptions', [ {
-								maxerr: 1000,
-								globals: { mw: true, mediaWiki: true, $: true, jQuery: true, OO: true }
-							} ] );
+							const model = editor.getModel();
+							if (model) {
+								model.onDidChangeContent(function () {
+									context.evt.codeEditorSync();
+								});
+
+								if (mw.hook && mw.hook( 'editRecovery.loadEnd' ).add) {
+									mw.hook( 'editRecovery.loadEnd' ).add( function ( data ) {
+										model.onDidChangeContent(function () {
+											if (data && typeof data.fieldChangeHandler === 'function') {
+												data.fieldChangeHandler();
+											}
+										});
+									});
+								}
+							}
+
+							// if (context.$codeEditorContainer && typeof context.$codeEditorContainer.resizable === 'function') {
+							// 	context.$codeEditorContainer.resizable( {
+							// 		handles: 's',
+							// 		minHeight: $box.height() || 200,
+							// 		resize: function () {
+							// 		}
+							// 	} );
+							// }
+							$( '.wikiEditor-ui-toolbar' ).addClass( 'codeEditor-ui-toolbar' );
+
+							if ( selectedLine > 0 ) {
+								editor.revealLineInCenter(selectedLine, monaco.editor.ScrollType.Smooth);
+								editor.setPosition({ lineNumber: selectedLine, column: 1 });
+							}
+
+							context.fn.setupStatusBar();
+							document.body.classList.remove( 'codeeditor-loading' );
+							context.fn.trigger( 'ready' );
+							editor.focus();
+						} else if (Date.now() - startTime > 10000) {
+							clearInterval(checkEditorInterval);
+							document.body.classList.remove( 'codeeditor-loading' );
+							console.error("CodeEditor: Monaco editor instance not found after 10 seconds. Check monaco-init.js.");
+							context.fn.disableCodeEditor();
+							mw.notify("Failed to load code editor. Reverted to plain textarea.", {type: "error"});
 						}
-					} );
+					}, 100);
+					var startTime = Date.now();
 
-					mw.hook( 'codeEditor.configure' ).fire( session );
-
-					// Add an Ace change handler to pass changes to Edit Recovery.
-					mw.hook( 'editRecovery.loadEnd' ).add( ( data ) => {
-						session.on( 'change', data.fieldChangeHandler );
-					} );
-
-					ace.config.loadModule( 'ace/ext/modelist', ( modelist ) => {
-						if ( !modelist || !modelist.modesByName[ lang ] ) {
-							lang = 'text';
-						}
-						session.setMode( 'ace/mode/' + lang );
-					} );
-
-					// Use jQuery UI resizable() so that users can make the box taller
-
-					container.resizable( {
-						handles: 's',
-						minHeight: $box.height(),
-						resize: function () {
-
-							context.codeEditor.resize();
-						}
-					} );
-					$( '.wikiEditor-ui-toolbar' ).addClass( 'codeEditor-ui-toolbar' );
-
-					if ( selectedLine > 0 ) {
-						// Line numbers in CodeEditor are zero-based
-						context.codeEditor.navigateTo( selectedLine - 1, 0 );
-						// Scroll up a bit to give some context
-						context.codeEditor.scrollToRow( selectedLine - 4 );
-					}
-
-					context.fn.setupStatusBar();
-
+				} else {
 					document.body.classList.remove( 'codeeditor-loading' );
-
-					// Let modules know we're ready to start working with the content
-					context.fn.trigger( 'ready' );
+					if (typeof initializeMonacoEditor !== 'function') {
+						console.error("CodeEditor: initializeMonacoEditor function not found. Ensure monaco-init.js is loaded.");
+					}
+					if (!lang) {
+						console.warn("CodeEditor: No language specified (wgCodeEditorCurrentLanguage is not set). Monaco will use plaintext.");
+					}
 				}
 			},
 
@@ -453,29 +569,38 @@
 			 * May be needed by some folks with funky browsers, or just to compare.
 			 */
 			disableCodeEditor: function () {
-				// Kills it!
+				// Clean up event handlers
 				context.$textarea.closest( 'form' )
-					.off( 'submit', context.evt.codeEditorSubmit )
-					.find( '#wpSave' ).off( 'click', context.evt.codeEditorSave );
+					.off( '.codeEditor' );
+				context.$textarea.closest( 'form' ).find( '#wpSave' ).off( '.codeEditor' );
 
-				// Save contents
+				// Save contents before destroying
+				if (context.codeEditor && typeof context.codeEditor.getValue === 'function') {
+					context.$textarea.val( context.codeEditor.getValue() );
+				}
 				context.$textarea.textSelection( 'unregister' );
-				context.$textarea.val( textSelectionFn.getContents() );
 
-				// @todo fetch cursor, scroll position
-
-				// Drop the fancy editor widget...
+				// Drop the editor widget
 				context.fn.removeStatusBar();
-				context.$codeEditorContainer.remove();
+				if (context.codeEditor && typeof context.codeEditor.dispose === 'function') {
+					context.codeEditor.dispose();
+				}
+				if (context.$codeEditorContainer) {
+					// if (typeof context.$codeEditorContainer.resizable === 'function') {
+					// 	context.$codeEditorContainer.resizable( 'destroy' );
+					// }
+					context.$codeEditorContainer.remove();
+				}
 				context.$codeEditorContainer = undefined;
 				context.codeEditor = undefined;
+				context.$textarea.removeData('monacoEditor');
 
 				// Restore textarea
 				context.$textarea.show();
+
 				// Restore toolbar
 				$( '.wikiEditor-ui-toolbar' ).removeClass( 'codeEditor-ui-toolbar' );
-
-				// @todo restore cursor, scroll position
+				document.body.classList.remove( 'codeeditor-loading' );
 			},
 
 			/**
@@ -493,10 +618,9 @@
 
 					selectedLine = parseInt( result[ 1 ], 10 );
 					if ( context.codeEditor && selectedLine > 0 ) {
-						// Line numbers in CodeEditor are zero-based
-						context.codeEditor.navigateTo( selectedLine - 1, 0 );
-						// Scroll up a bit to give some context
-						context.codeEditor.scrollToRow( selectedLine - 4 );
+						context.codeEditor.revealLineInCenter(selectedLine);
+						context.codeEditor.setPosition({ lineNumber: selectedLine, column: 1 });
+						context.codeEditor.focus();
 					}
 				}
 
@@ -509,176 +633,106 @@
 			 * the position of the cursor.
 			 */
 			setupStatusBar: function () {
-				let shouldUpdateAnnotations,
-					shouldUpdateSelection,
-					shouldUpdateLineInfo,
-					nextAnnotation;
-				const editor = context.codeEditor,
-					lang = ace.require( 'ace/lib/lang' ),
-					$errors = $( '<span>' ).addClass( 'codeEditor-status-worker-cell ace_gutter-cell ace_error' ).text( '0' ),
-					$warnings = $( '<span>' ).addClass( 'codeEditor-status-worker-cell ace_gutter-cell ace_warning' ).text( '0' ),
-					$infos = $( '<span>' ).addClass( 'codeEditor-status-worker-cell ace_gutter-cell ace_info' ).text( '0' ),
-					$message = $( '<div>' ).addClass( 'codeEditor-status-message' ),
-					$lineAndMode = $( '<div>' ).addClass( 'codeEditor-status-line' ),
-					$workerStatus = $( '<div>' )
-						.addClass( 'codeEditor-status-worker' )
-						.attr( 'title', mw.msg( 'codeeditor-next-annotation' ) )
-						.append( $errors )
-						.append( $warnings )
-						.append( $infos );
+				// Remove any existing status bar
+				context.fn.removeStatusBar();
 
-				context.$statusBar = $( '<div>' )
-					.addClass( 'codeEditor-status' )
-					.append( $workerStatus )
-					.append( $message )
-					.append( $lineAndMode );
-
-				/* Help function to concatenate strings with different separators */
-				function addToStatus( status, str, separator ) {
-					if ( str ) {
-						status.push( str, separator || '|' );
-					}
+				if ( !context.codeEditor || !context.codeEditor.getModel ) {
+					return;
 				}
 
-				/**
-				 * Update all the information in the status bar
-				 */
-				function updateStatusBar() {
-					let errors = 0,
-						warnings = 0,
-						infos = 0,
-						distance,
-						shortestDistance = Infinity,
-						closestAnnotation,
-						closestType;
-					const currentLine = editor.selection.lead.row,
-						annotations = editor.getSession().getAnnotations();
-
-					// Reset the next annotation
-					nextAnnotation = null;
-
-					for ( let i = 0; i < annotations.length; i++ ) {
-						const annotation = annotations[ i ];
-						distance = Math.abs( currentLine - annotation.row );
-
-						if ( distance < shortestDistance ) {
-							shortestDistance = distance;
-							closestAnnotation = annotation;
-						}
-						if ( nextAnnotation === null && annotation.row > currentLine ) {
-							nextAnnotation = annotation;
-						}
-
-						switch ( annotations[ i ].type ) {
-							case 'error':
-								errors++;
-								break;
-							case 'warning':
-								warnings++;
-								break;
-							case 'info':
-								infos++;
-								break;
-						}
-					}
-					// Wrap around to the beginning for nextAnnotation
-					if ( nextAnnotation === null && annotations.length > 0 ) {
-						nextAnnotation = annotations[ 0 ];
-					}
-					// Update the annotation counts
-					if ( shouldUpdateAnnotations ) {
-						$errors.text( errors );
-						$warnings.text( warnings );
-						$infos.text( infos );
-					}
-
-					// Show the message of the current line, if we have not already done so
-					if ( closestAnnotation &&
-							currentLine === closestAnnotation.row &&
-							closestAnnotation !== $message.data( 'annotation' ) ) {
-						$message.data( 'annotation', closestAnnotation );
-						closestType =
-							closestAnnotation.type.charAt( 0 ).toUpperCase() +
-							closestAnnotation.type.slice( 1 );
-
-						$message.text( closestType + ': ' + closestAnnotation.text );
-					} else if ( $message.data( 'annotation' ) !== null &&
-							( !closestAnnotation || currentLine !== closestAnnotation.row ) ) {
-						// If we are on a different line without an annotation, then blank the message
-						$message.data( 'annotation', null );
-						$message.text( '' );
-					}
-
-					// The cursor position has changed
-					if ( shouldUpdateSelection || shouldUpdateLineInfo ) {
-						// Adapted from Ajax.org's ace/ext/statusbar module
-						const status = [];
-
-						if ( editor.$vimModeHandler ) {
-							addToStatus( status, editor.$vimModeHandler.getStatusText() );
-						} else if ( editor.commands.recording ) {
-							addToStatus( status, 'REC' );
-						}
-
-						const c = editor.selection.lead;
-						addToStatus( status, ( c.row + 1 ) + ':' + c.column, '' );
-						if ( !editor.selection.isEmpty() ) {
-							const r = editor.getSelectionRange();
-							addToStatus( status, '(' + ( r.end.row - r.start.row ) + ':' + ( r.end.column - r.start.column ) + ')' );
-						}
-						status.pop();
-						$lineAndMode.text( status.join( '' ) );
-					}
-
-					shouldUpdateLineInfo = shouldUpdateSelection = shouldUpdateAnnotations = false;
-				}
-
-				// Function to delay/debounce updates for the StatusBar
-				const delayedUpdate = lang.delayedCall( () => {
-					updateStatusBar( editor );
-				} );
-
-				/**
-				 * Click handler that allows you to skip to the next annotation
-				 */
-				$workerStatus.on( 'click', ( e ) => {
-					if ( nextAnnotation ) {
-						context.codeEditor.navigateTo( nextAnnotation.row, nextAnnotation.column );
-						// Scroll up a bit to give some context
-						context.codeEditor.scrollToRow( nextAnnotation.row - 3 );
+				const $bar = $( '<div>' ).addClass( 'wikiEditor-ui-bottomInfo codeeditor-statusbar' );
+				const $pos = $( '<a>' )
+					.attr( 'href', '#' )
+					.addClass( 'codeeditor-statusbar-position' )
+					.attr( 'role', 'button' )
+					.attr( 'title', mw.msg('codeeditor-gotoline') )
+					.on( 'click', function ( e ) {
 						e.preventDefault();
+						context.fn.monacoGotoLineColumn();
+					} );
+				const $info = $( '<span>' ).addClass( 'codeeditor-statusbar-info' );
+
+				$bar.append( $pos, $info );
+				if (context.$codeEditorContainer) {
+					context.$codeEditorContainer.after($bar);
+				} else {
+					context.modules.toolbar.$toolbar.after( $bar );
+				}
+				context.$statusBar = $bar;
+
+				const editor = context.codeEditor;
+				const model = editor.getModel();
+
+				function updateStatusBar() {
+					if (!editor || !model || !editor.getPosition) { return; }
+
+					const position = editor.getPosition();
+					if (position) {
+						$pos.text( mw.msg( 'codeeditor-statusbar-line', position.lineNumber ) + ', ' + mw.msg( 'codeeditor-statusbar-column', position.column ) );
+					} else {
+						$pos.text('');
 					}
-				} );
 
-				editor.getSession().on( 'changeAnnotation', () => {
-					shouldUpdateAnnotations = true;
-					delayedUpdate.schedule( 100 );
-				} );
-				editor.on( 'changeStatus', () => {
-					shouldUpdateLineInfo = true;
-					delayedUpdate.schedule( 100 );
-				} );
-				editor.on( 'changeSelection', () => {
-					shouldUpdateSelection = true;
-					delayedUpdate.schedule( 100 );
-				} );
+					let errors = 0;
+					let warnings = 0;
+					if (monaco && monaco.editor && monaco.MarkerSeverity && model.uri) {
+						const markers = monaco.editor.getModelMarkers({ resource: model.uri });
+						markers.forEach(function(marker) {
+							if (marker.severity === monaco.MarkerSeverity.Error) {
+								errors++;
+							} else if (marker.severity === monaco.MarkerSeverity.Warning) {
+								warnings++;
+							}
+						});
+					}
 
-				// Force update
-				shouldUpdateLineInfo = shouldUpdateSelection = shouldUpdateAnnotations = true;
-				updateStatusBar( editor );
+					let infoText = '';
+					if (errors > 0) {
+						infoText += mw.msg( 'codeeditor-statusbar-errors', errors ) + ' ';
+					}
+					if (warnings > 0) {
+						infoText += mw.msg( 'codeeditor-statusbar-warnings', warnings );
+					}
+					$info.text( infoText.trim() );
+				}
 
-				context.$statusBar.insertAfter( context.$ui.find( '.wikiEditor-ui-bottom' ) );
+				if (context.monacoCursorListener) context.monacoCursorListener.dispose();
+				context.monacoCursorListener = editor.onDidChangeCursorPosition( updateStatusBar );
+
+				if (model) {
+					if (context.monacoMarkerListener) context.monacoMarkerListener.dispose();
+					if (monaco && monaco.editor && typeof monaco.editor.onDidChangeMarkers === 'function') {
+						context.monacoMarkerListener = monaco.editor.onDidChangeMarkers(function(uris) {
+							if (uris.some(function(uri) { return uri.toString() === model.uri.toString(); })) {
+								updateStatusBar();
+							}
+						});
+					} else {
+						if (context.monacoContentListenerForStatusBar) context.monacoContentListenerForStatusBar.dispose();
+						context.monacoContentListenerForStatusBar = model.onDidChangeContent( updateStatusBar );
+					}
+				}
+				updateStatusBar();
 			},
+
 			removeStatusBar: function () {
-				context.codeEditor.getSession().removeListener( 'changeAnnotation' );
-				context.codeEditor.removeListener( 'changeSelection' );
-				context.codeEditor.removeListener( 'changeStatus' );
-				context.nextAnnotation = null;
-				context.$statusBar = null;
-
-				$( '.codeEditor-status' ).remove();
+				if ( context.$statusBar ) {
+					context.$statusBar.remove();
+					context.$statusBar = undefined;
+				}
+				if (context.monacoCursorListener) {
+					context.monacoCursorListener.dispose();
+					context.monacoCursorListener = undefined;
+				}
+				if (context.monacoMarkerListener) {
+					context.monacoMarkerListener.dispose();
+					context.monacoMarkerListener = undefined;
+				}
+				if (context.monacoContentListenerForStatusBar) {
+					context.monacoContentListenerForStatusBar.dispose();
+					context.monacoContentListenerForStatusBar = undefined;
+				}
 			}
-
 		} );
 
 		/**
@@ -725,18 +779,22 @@
 		} );
 
 		/**
-		 * Compatibility with the $.textSelection jQuery plug-in. When the iframe is in use, these functions provide
-		 * equivalant functionality to the otherwise textarea-based functionality.
+		 * Compatibility with the $.textSelection jQuery plug-in. When the editor is in use, these functions provide
+		 * equivalent functionality to the otherwise textarea-based functionality.
 		 */
 		textSelectionFn = {
-
 			/* Needed for search/replace */
 			getContents: function () {
-				return context.codeEditor.getSession().getValue();
+				if (context.codeEditor && context.codeEditor.getModel()) {
+					return context.codeEditor.getModel().getValue();
+				}
+				return '';
 			},
 
 			setContents: function ( newContents ) {
-				context.codeEditor.getSession().setValue( newContents );
+				if (context.codeEditor && context.codeEditor.getModel()) {
+					context.codeEditor.getModel().setValue(newContents);
+				}
 				return context.$textarea;
 			},
 
@@ -747,7 +805,13 @@
 			 * @return {string}
 			 */
 			getSelection: function () {
-				return context.codeEditor.getCopyText();
+				if (context.codeEditor) {
+					const selection = context.codeEditor.getSelection();
+					if (selection) {
+						return context.codeEditor.getModel().getValueInRange(selection);
+					}
+				}
+				return '';
 			},
 
 			/**
@@ -758,12 +822,25 @@
 			 * @return {jQuery}
 			 */
 			replaceSelection: function ( text ) {
-				context.codeEditor.insert( text );
+				if (context.codeEditor) {
+					const selection = context.codeEditor.getSelection();
+					if (selection) {
+						const model = context.codeEditor.getModel();
+
+						context.codeEditor.executeEdits('textSelection', [{
+							range: selection,
+							text: text,
+							forceMoveMarkers: true
+						}]);
+					} else {
+						context.codeEditor.trigger('keyboard', 'type', { text: text });
+					}
+				}
 				return context.$textarea;
 			},
 
 			/**
-			 * Inserts text at the begining and end of a text selection, optionally inserting text at the caret when
+			 * Inserts text at the beginning and end of a text selection, optionally inserting text at the caret when
 			 * selection is empty.
 			 * DO NOT CALL THIS DIRECTLY, use $.textSelection( 'functionname', options ) instead
 			 *
@@ -771,34 +848,56 @@
 			 * @return {jQuery}
 			 */
 			encapsulateSelection: function ( options ) {
-				// Does not yet handle 'ownline', 'splitlines' option
-				const sel = context.codeEditor.getSelection();
-				const range = sel.getRange();
-				let selText = textSelectionFn.getSelection();
+				if (!context.codeEditor) {
+					return context.$textarea;
+				}
+
+				const editor = context.codeEditor;
+				const selection = editor.getSelection();
+				const model = editor.getModel();
+
+				if (!selection || !model) {
+					return context.$textarea;
+				}
+
+				let selText = model.getValueInRange(selection);
 				let isSample = false;
 
-				if ( !selText ) {
+				if (!selText) {
 					selText = options.peri;
 					isSample = true;
-				} else if ( options.replace ) {
+				} else if (options.replace) {
 					selText = options.peri;
 				}
 
-				let text = options.pre;
-				text += selText;
-				text += options.post;
-				context.codeEditor.insert( text );
-				if ( isSample && options.selectPeri && !options.splitlines ) {
-					// May esplode if anything has newlines, be warned. :)
-					range.setStart( range.start.row, range.start.column + options.pre.length );
-					range.setEnd( range.start.row, range.start.column + selText.length );
-					sel.setSelectionRange( range );
+				let text = options.pre + selText + options.post;
+
+				editor.executeEdits('textSelection', [{
+					range: selection,
+					text: text,
+					forceMoveMarkers: true
+				}]);
+
+				if (isSample && options.selectPeri && !options.splitlines) {
+					const insertEndPosition = editor.getPosition();
+					if (insertEndPosition) {
+						const startLine = insertEndPosition.lineNumber;
+						const startCol = insertEndPosition.column - options.post.length - selText.length;
+						const endCol = startCol + selText.length;
+
+						editor.setSelection(new monaco.Range(
+							startLine,
+							startCol,
+							endCol
+						));
+					}
 				}
+
 				return context.$textarea;
 			},
 
 			/**
-			 * Gets the position (in resolution of bytes not nessecarily characters) in a textarea
+			 * Gets the position (in characters) in a text area
 			 * DO NOT CALL THIS DIRECTLY, use $.textSelection( 'functionname', options ) instead
 			 *
 			 * @param {Object} options
@@ -807,14 +906,28 @@
 			 * end of the selection, else returns only the start of the selection as a single number.
 			 */
 			getCaretPosition: function ( options ) {
-				const selection = context.codeEditor.getSelection(),
-					range = selection.getRange(),
-					doc = context.codeEditor.getSession().getDocument(),
-					startOffset = doc.positionToIndex( range.start );
+				if (!context.codeEditor || !context.codeEditor.getModel()) {
+					return options.startAndEnd ? [0, 0] : 0;
+				}
 
-				if ( options.startAndEnd ) {
-					const endOffset = doc.positionToIndex( range.end );
-					return [ startOffset, endOffset ];
+				const model = context.codeEditor.getModel();
+				const selection = context.codeEditor.getSelection();
+
+				if (!selection) {
+					return options.startAndEnd ? [0, 0] : 0;
+				}
+
+				const startOffset = model.getOffsetAt({
+					lineNumber: selection.startLineNumber,
+					column: selection.startColumn
+				});
+
+				if (options.startAndEnd) {
+					const endOffset = model.getOffsetAt({
+						lineNumber: selection.endLineNumber,
+						column: selection.endColumn
+					});
+					return [startOffset, endOffset];
 				}
 
 				return startOffset;
@@ -828,34 +941,22 @@
 			 * @return {jQuery}
 			 */
 			setSelection: function ( options ) {
-				// Ace stores positions for ranges as row/column pairs.
-				// To convert from character offsets, we'll need to iterate through the document
-				const doc = context.codeEditor.getSession().getDocument();
-				const lines = doc.getAllLines();
+				if (!context.codeEditor || !context.codeEditor.getModel()) {
+					return context.$textarea;
+				}
 
-				const offsetToPos = function ( offset ) {
-					let row, col, pos;
+				const model = context.codeEditor.getModel();
 
-					row = 0;
-					col = 0;
-					pos = 0;
+				const start = model.getPositionAt(options.start);
+				const end = model.getPositionAt(options.end);
 
-					while ( row < lines.length && pos + lines[ row ].length < offset ) {
-						pos += lines[ row ].length;
-						pos++; // for the newline
-						row++;
-					}
-					col = offset - pos;
-					return { row: row, column: col };
-				};
-				const start = offsetToPos( options.start );
-				const end = offsetToPos( options.end );
+				context.codeEditor.setSelection(new monaco.Range(
+					start.lineNumber,
+					start.column,
+					end.lineNumber,
+					end.column
+				));
 
-				const sel = context.codeEditor.getSelection();
-				const range = sel.getRange();
-				range.setStart( start.row, start.column );
-				range.setEnd( end.row, end.column );
-				sel.setSelectionRange( range );
 				return context.$textarea;
 			},
 
@@ -866,7 +967,15 @@
 			 * @return {jQuery}
 			 */
 			scrollToCaretPosition: function () {
-				mw.log( 'codeEditor stub function scrollToCaretPosition called' );
+				if (context.codeEditor) {
+					const selection = context.codeEditor.getSelection();
+					if (selection) {
+						context.codeEditor.revealPositionInCenter({
+							lineNumber: selection.startLineNumber,
+							column: selection.startColumn
+						});
+					}
+				}
 				return context.$textarea;
 			}
 		};

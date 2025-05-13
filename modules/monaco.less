@@ -1,0 +1,83 @@
+@import 'mediawiki.mixins';
+@import 'mediawiki.skin.variables.less';
+
+/* stylelint-disable selector-class-pattern */
+
+.monaco-editor {
+	width: 100%;
+	height: 100%;
+}
+
+.wikiEditor-ui .monaco-editor {
+	/* Same as mw-editfont-monospace, repeated for higher specificity */
+	font-size: 13px;
+	font-family: monospace, monospace;
+}
+
+.monaco-editor .line-numbers {
+	color: #999;
+}
+
+.monaco-editor-container {
+	width: 100%;
+	height: 100%;
+	position: relative;
+}
+
+.codeEditor-status {
+	clear: both;
+	width: 100%;
+	background-color: @background-color-neutral-subtle;
+	border-top: 1px solid @border-color-subtle;
+	display: table;
+}
+
+.codeEditor-status-worker {
+	padding: 0 0.3em;
+	user-select: none;
+	cursor: pointer;
+	display: table-cell;
+}
+
+.codeEditor-status-message {
+	border-left: 1px solid @border-color-subtle;
+	border-right: 1px solid @border-color-subtle;
+	padding: 0 0.3em;
+	width: 100%;
+	display: table-cell;
+}
+
+.codeEditor-status-line {
+	padding: 0 0.3em;
+	text-align: right;
+	white-space: nowrap;
+	display: table-cell;
+}
+
+.codeEditor-status-worker-cell {
+	padding: 0 0.3em;
+	display: inline-block;
+}
+
+.codeEditor-status-worker-cell.error {
+	background-color: #faa;
+	color: #000;
+}
+
+.codeEditor-status-worker-cell.warning {
+	background-color: #ffa;
+	color: #000;
+}
+
+.codeEditor-status-worker-cell.info {
+	background-color: #aaf;
+	color: #000;
+}
+
+/* Hide vanilla MediaWiki's "Editing help" link, as we provide it in the toolbar */
+/* Copied from the same code in WikiEditor */
+.client-js .editButtons {
+	.editHelp {
+		display: none;
+	}
+}

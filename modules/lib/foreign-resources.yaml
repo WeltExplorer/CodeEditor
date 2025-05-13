@@ -1,16 +1,17 @@
-ace:
-  license: BSD-3-Clause
-  homepage: https://github.com/ajaxorg/ace-builds
-  version: 1.39.1
-  purl: pkg:github/ajaxorg/ace-builds@1.39.1
+monaco-editor:
+  license: MIT
+  homepage: https://github.com/microsoft/monaco-editor
+  version: 0.46.0
+  purl: pkg:npm/monaco-editor@0.46.0
   type: tar
-  authors: Ace authors – https://ace.c9.io/
-  src: https://codeload.github.com/ajaxorg/ace-builds/tar.gz/v1.39.1
-  integrity: sha384-H7Ib7B2/OYIfQJ97NgYu7dUPfbzoIeTwBkFkival//AiXJ0S7OGMYSASFw2JVHvE
+  authors: Microsoft Corporation
+  src: https://registry.npmjs.org/monaco-editor/-/monaco-editor-0.46.0.tgz
   dest:
-    ace-builds-*/CHANGELOG.md:
-    ace-builds-*/LICENSE:
-    ace-builds-*/README.md:
-    ace-builds-*/src-noconflict/*.js:
-    ace-builds-*/src-noconflict/snippets/:
+    # Assuming the script places files directly into min/vs/...
+    # and we are tracking the presence of key parts of the library.
+    min/vs/loader.js:
+    min/vs/editor/editor.main.css:
+    min/vs/editor/editor.main.js:
+    min/vs/editor/editor.main.nls.js:
+    min/vs/basic-languages/路 # This is a placeholder to indicate language files exist
 

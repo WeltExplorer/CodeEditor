@@ -18,17 +18,7 @@
 	display: none;
 }
 
-.wikiEditor-ui .ace_editor {
-	/* Same as mw-editfont-monospace, repeated for higher specificity */
-	font-size: 13px;
-	font-family: monospace, monospace;
-}
-
-.ace_editor textarea,
-.ace_editor input {
-	/* Inherit directionality from editor, not sitedir (T186329) */
-	direction: inherit;
-}
+/* Removed Ace-specific styles for .ace_editor, textarea, input */
 
 .codeEditor-status {
 	clear: both;
@@ -36,11 +26,6 @@
 	background-color: @background-color-neutral-subtle;
 	border-top: 1px solid @border-color-subtle;
 	display: table;
-}
-
-.codeEditor-status .codeEditor-status-worker-cell.ace_gutter-cell {
-	position: relative;
-	background-position: 0 center;
 }
 
 .codeEditor-status-worker {
