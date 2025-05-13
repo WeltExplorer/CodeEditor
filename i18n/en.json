@@ -18,5 +18,9 @@
 	"codeeditor-indent": "Indent",
 	"codeeditor-outdent": "Outdent",
 	"codeeditor-error-title": "Dependency failed",
-	"codeeditor-error-message": "CodeEditor needs WikiEditor to be loaded."
+	"codeeditor-error-message": "CodeEditor needs WikiEditor to be loaded.",
+	"codeeditor-statusbar-column": "Column: $1",
+	"codeeditor-statusbar-line": "Line: $1",
+	"codeeditor-statusbar-errors": "$1 error(s)",
+	"codeeditor-statusbar-warnings": "$1 warning(s)"
 }

@@ -18,5 +18,9 @@
 	"codeeditor-indent": "Einrücken",
 	"codeeditor-outdent": "Ausrücken",
 	"codeeditor-error-title": "Abhängigkeit fehlgeschlagen",
-	"codeeditor-error-message": "CodeEditor erfordert, dass der WikiEditor geladen wird."
+	"codeeditor-error-message": "CodeEditor erfordert, dass der WikiEditor geladen wird.",
+	"codeeditor-statusbar-column": "Spalte: $1",
+	"codeeditor-statusbar-line": "Zeile: $1",
+	"codeeditor-statusbar-errors": "$1 Fehler",
+	"codeeditor-statusbar-warnings": "$1 Warnung(en)"
 }
