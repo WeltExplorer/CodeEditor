@@ -86,7 +86,11 @@
 				"codeeditor-gotoline-placeholder",
 				"codeeditor-gotoline-prompt",
 				"codeeditor-indent",
-				"codeeditor-outdent"
+				"codeeditor-outdent",
+				"codeeditor-statusbar-column",
+				"codeeditor-statusbar-line",
+				"codeeditor-statusbar-errors",
+				"codeeditor-statusbar-warnings"
 			],
 			"group": "ext.wikiEditor"
 		},
